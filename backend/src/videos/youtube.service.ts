@@ -33,6 +33,8 @@ export class YoutubeService {
         '--no-playlist',
         '--max-filesize', MAX_FILESIZE,
         '--match-filter', `duration <= ${MAX_DURATION_SECONDS}`,
+        '--retries', '3',
+        '--socket-timeout', '30',
         '--no-progress',
         '-o', template,
         url,
