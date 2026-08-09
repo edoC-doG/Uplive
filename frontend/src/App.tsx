@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { api, type JobRecord, type TransitionType, type VideoRecord } from './api';
+import upliveIcon from './assets/icon.png';
 
 interface ClipDraft {
   start: number;
@@ -16,7 +17,7 @@ interface ClipDraft {
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-background p-5 shadow-sm">
-      <h2 className="mb-4 text-sm font-semibold text-foreground">{title}</h2>
+      <h2 className="mb-4 text-sm font-semibold text-primary">{title}</h2>
       {children}
     </section>
   );
@@ -62,6 +63,18 @@ function formatTime(seconds: number): string {
   return `${m}:${s.padStart(4, '0')}`;
 }
 
+/** Accepts "m:ss.s" (e.g. "2:05.3") or plain seconds (e.g. "125.3"). Returns null if unparseable. */
+function parseTimeInput(text: string): number | null {
+  const trimmed = text.trim();
+  if (/^\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  const match = /^(\d+):(\d{1,2}(?:\.\d+)?)$/.exec(trimmed);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  if (seconds >= 60) return null;
+  return minutes * 60 + seconds;
+}
+
 export default function App() {
   const [url, setUrl] = useState('');
   const [video, setVideo] = useState<VideoRecord | null>(null);
@@ -72,6 +85,11 @@ export default function App() {
   const [transitions, setTransitions] = useState<TransitionType[]>([]);
   const [rangeStart, setRangeStart] = useState(0);
   const [rangeEnd, setRangeEnd] = useState(0);
+  // Separate "draft" text state so the input can hold invalid/in-progress
+  // text (e.g. "2:0") while typing, without fighting a controlled value
+  // that's always reformatted from the numeric seconds.
+  const [rangeStartText, setRangeStartText] = useState('0:00.0');
+  const [rangeEndText, setRangeEndText] = useState('0:00.0');
 
   const [job, setJob] = useState<JobRecord | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -85,7 +103,7 @@ export default function App() {
       try {
         const updated = await api.getVideo(video.id);
         setVideo(updated);
-        if (updated.status === 'ready' && updated.duration) setRangeEnd(updated.duration);
+        if (updated.status === 'ready' && updated.duration) applyRangeEnd(updated.duration);
       } catch {
         clearInterval(t);
       }
@@ -149,6 +167,25 @@ export default function App() {
     setTransitions(next);
   }
 
+  function applyRangeStart(seconds: number) {
+    setRangeStart(seconds);
+    setRangeStartText(formatTime(seconds));
+  }
+  function applyRangeEnd(seconds: number) {
+    setRangeEnd(seconds);
+    setRangeEndText(formatTime(seconds));
+  }
+  function commitRangeStartText() {
+    const parsed = parseTimeInput(rangeStartText);
+    if (parsed !== null && parsed >= 0) applyRangeStart(parsed);
+    else setRangeStartText(formatTime(rangeStart));
+  }
+  function commitRangeEndText() {
+    const parsed = parseTimeInput(rangeEndText);
+    if (parsed !== null && parsed >= 0) applyRangeEnd(parsed);
+    else setRangeEndText(formatTime(rangeEnd));
+  }
+
   async function handleExport() {
     if (!video || clips.length === 0) return;
     setSubmitting(true);
@@ -165,11 +202,14 @@ export default function App() {
 
   return (
     <div className="mx-auto min-h-screen max-w-2xl px-4 py-10">
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight">ClipForge</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Paste a YouTube link, pick clips, add transitions, export.
-        </p>
+      <header className="mb-8 flex items-center gap-3">
+        <img src={upliveIcon} alt="Uplive" className="h-8 w-auto shrink-0" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-primary">ClipForge</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Paste a YouTube link, pick clips, add transitions, export.
+          </p>
+        </div>
       </header>
 
       <div className="flex flex-col gap-5">
@@ -227,48 +267,51 @@ export default function App() {
                 />
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label>Start ({formatTime(rangeStart)})</Label>
+                    <Label>Start</Label>
                     <div className="flex gap-1.5">
                       <Input
-                        type="number"
-                        min={0}
-                        max={video.duration}
-                        step={0.1}
-                        value={rangeStart}
-                        onChange={(e) => setRangeStart(Number(e.target.value))}
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0:00.0"
+                        value={rangeStartText}
+                        onChange={(e) => setRangeStartText(e.target.value)}
+                        onBlur={commitRangeStartText}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
                       />
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setRangeStart(videoRef.current?.currentTime ?? 0)}
+                        onClick={() => applyRangeStart(videoRef.current?.currentTime ?? 0)}
                       >
                         Use time
                       </Button>
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <Label>End ({formatTime(rangeEnd)})</Label>
+                    <Label>End</Label>
                     <div className="flex gap-1.5">
                       <Input
-                        type="number"
-                        min={0}
-                        max={video.duration}
-                        step={0.1}
-                        value={rangeEnd}
-                        onChange={(e) => setRangeEnd(Number(e.target.value))}
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0:00.0"
+                        value={rangeEndText}
+                        onChange={(e) => setRangeEndText(e.target.value)}
+                        onBlur={commitRangeEndText}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
                       />
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setRangeEnd(videoRef.current?.currentTime ?? 0)}
+                        onClick={() => applyRangeEnd(videoRef.current?.currentTime ?? 0)}
                       >
                         Use time
                       </Button>
                     </div>
                   </div>
                 </div>
+                <p className="-mt-2 text-xs text-muted-foreground">Format: m:ss.s (e.g. 1:23.4) or plain seconds.</p>
                 <Button type="button" onClick={addClip} disabled={rangeEnd <= rangeStart} className="w-full">
                   <Plus className="h-4 w-4" /> Add clip
                 </Button>

@@ -141,7 +141,41 @@ the final duration - never a multiple of it.
 - **Only three transitions** (cut / fade / slide-left) - covers the brief's
   examples without turning transition-authoring into its own feature.
 
-## What breaks first at 1,000 concurrent submissions
+## Product sense
+
+The brief's bar is "paste a link, select clips, export, download" feeling
+complete, not just possible. Concretely:
+
+- **Live progress, not a spinner.** Both download and export status poll
+  every 1.2s and show a real percentage - parsed from yt-dlp's `[download]`
+  lines and ffmpeg's `time=` output, not a fake progress bar.
+- **Scrubbing works.** The source video is served with HTTP Range support,
+  so the preview player seeks instantly instead of buffering the whole file.
+- **Picking a range doesn't require typing timestamps.** A "use current
+  time" button next to each start/end field grabs the player's current
+  playhead position.
+- **Errors are specific, not generic.** Validation failures (bad URL, clip
+  past the video's duration, too many clips) surface the actual reason
+  inline, via the same `{success:false, message}` envelope the whole API
+  uses - not a silent failure or a raw stack trace.
+- **The queue is honest about itself.** `queuePosition` is returned on
+  submission so a second job knows it's waiting, not stuck.
+
+## Code layout
+
+- `backend/src/jobs/export.service.ts` - the core logic worth reading first:
+  the two export strategies described above.
+- `backend/src/common/task-queue.service.ts` - the concurrency control that
+  makes the resource story true (one job at a time, always).
+- `backend/src/common/process.util.ts` - the spawn/timeout/kill wrapper
+  every ffmpeg/yt-dlp call goes through.
+- `backend/src/videos/`, `backend/src/jobs/` - one NestJS module per
+  feature (download+source-streaming, export+download) rather than a
+  layered architecture - see the process note at the bottom for why.
+- `frontend/src/App.tsx` - the whole UI; small enough that splitting it
+  into more files would've cost more to navigate than it saved.
+
+## What breaks first under the resource constraint (and at 1,000 concurrent submissions)
 
 **CPU on the single worker, immediately**, followed closely by **local
 disk**. The whole design puts exactly one yt-dlp/ffmpeg process in flight at
